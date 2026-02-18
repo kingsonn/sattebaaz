@@ -1,0 +1,3 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.95s
+     Running `target\debug\paper_trade.exe`
+error: process didn't exit successfully: `target\debug\paper_trade.exe` (exit code: 0xffffffff)

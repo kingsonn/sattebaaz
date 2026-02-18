@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTC 5m Market Data Collector</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; }
+    .glow-green { text-shadow: 0 0 8px rgba(34,197,94,0.5); }
+    .glow-red { text-shadow: 0 0 8px rgba(239,68,68,0.5); }
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+    select, input[type=number] {
+      background: #0f172a; border: 1px solid #475569; color: #e2e8f0;
+      border-radius: 8px; padding: 6px 12px;
+    }
+    .btn {
+      background: #3b82f6; color: white; border: none; border-radius: 8px;
+      padding: 8px 20px; cursor: pointer; font-weight: 600;
+    }
+    .btn:hover { background: #2563eb; }
+    .btn-sm { padding: 4px 12px; font-size: 0.85rem; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    .market-row:hover { background: #334155; cursor: pointer; }
+    .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
+    .pill-win { color: #22c55e; font-weight: 700; }
+    .pill-loss { color: #ef4444; font-weight: 700; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Header -->
+  <header class="border-b border-slate-700 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-3 h-3 rounded-full bg-green-500 pulse"></div>
+      <h1 class="text-xl font-bold" id="headerTitle">BTC 5-Min Market Collector</h1>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
+        <button id="toggle5m" onclick="setMarketType('5m')"
+          class="px-4 py-1.5 rounded-md text-sm font-semibold transition-all bg-blue-600 text-white">
+          5 Min
+        </button>
+        <button id="toggle15m" onclick="setMarketType('15m')"
+          class="px-4 py-1.5 rounded-md text-sm font-semibold transition-all text-slate-400 hover:text-white">
+          15 Min
+        </button>
+      </div>
+      <div class="text-sm text-slate-400">
+        <span id="lastUpdate">—</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-6 space-y-6">
+
+    <!-- Stats Cards -->
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="card p-4 text-center">
+        <div class="text-3xl font-bold text-blue-400" id="statTotal">0</div>
+        <div class="text-xs text-slate-400 mt-1">Total Markets</div>
+      </div>
+      <div class="card p-4 text-center">
+        <div class="text-3xl font-bold text-green-400" id="statResolved">0</div>
+        <div class="text-xs text-slate-400 mt-1">Resolved</div>
+      </div>
+      <div class="card p-4 text-center">
+        <div class="text-3xl font-bold text-amber-400" id="statActive">0</div>
+        <div class="text-xs text-slate-400 mt-1">Active Now</div>
+      </div>
+      <div class="card p-4 text-center">
+        <div class="text-3xl font-bold text-purple-400" id="statTicks">0</div>
+        <div class="text-xs text-slate-400 mt-1">Price Ticks</div>
+      </div>
+    </section>
+
+    <!-- Active Market Live View -->
+    <section class="card p-5" id="liveSection" style="display:none;">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full bg-green-500 pulse"></div>
+        Live Market
+      </h2>
+      <div id="liveMarketInfo" class="mb-3 text-sm text-slate-400"></div>
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div class="card p-3 text-center" style="background:#0f172a;">
+          <div class="text-xs text-green-400 mb-1">YES (Up)</div>
+          <div class="text-2xl font-bold glow-green" id="liveYes">—</div>
+          <div class="text-xs text-slate-500 mt-1">
+            Bid: <span id="liveYesBid">—</span> / Ask: <span id="liveYesAsk">—</span>
+          </div>
+        </div>
+        <div class="card p-3 text-center" style="background:#0f172a;">
+          <div class="text-xs text-red-400 mb-1">NO (Down)</div>
+          <div class="text-2xl font-bold glow-red" id="liveNo">—</div>
+          <div class="text-xs text-slate-500 mt-1">
+            Bid: <span id="liveNoBid">—</span> / Ask: <span id="liveNoAsk">—</span>
+          </div>
+        </div>
+      </div>
+      <div class="h-64">
+        <canvas id="liveChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Price Query Tool -->
+    <section class="card p-5">
+      <h2 class="text-lg font-semibold mb-4">Price Query</h2>
+      <p class="text-sm text-slate-400 mb-4">
+        "In how many resolved markets did the price reach a certain level?"
+      </p>
+      <div class="flex flex-wrap items-end gap-3 mb-4">
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Side</label>
+          <select id="qSide">
+            <option value="yes">YES (Up)</option>
+            <option value="no">NO (Down)</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Price Type</label>
+          <select id="qType">
+            <option value="mid">Mid</option>
+            <option value="bid">Best Bid</option>
+            <option value="ask">Best Ask</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Condition</label>
+          <select id="qOp">
+            <option value="gte">&ge; (greater or equal)</option>
+            <option value="lte">&le; (less or equal)</option>
+            <option value="eq">= (equal)</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Value ($)</label>
+          <input type="number" id="qValue" value="0.50" min="0" max="1" step="0.01" class="w-24">
+        </div>
+        <button class="btn" onclick="runQuery()">Search</button>
+      </div>
+      <!-- Slider for quick exploration -->
+      <div class="mb-4">
+        <label class="text-xs text-slate-400">Quick slider: $<span id="sliderVal">0.50</span></label>
+        <input type="range" id="qSlider" min="0" max="1" step="0.01" value="0.50"
+               class="w-full accent-blue-500" oninput="onSlider(this.value)">
+      </div>
+      <div id="queryResult" class="card p-4" style="background:#0f172a; display:none;">
+        <div class="text-center">
+          <div class="text-4xl font-bold text-blue-400" id="qrCount">0</div>
+          <div class="text-sm text-slate-400 mt-1">
+            out of <span id="qrTotal">0</span> resolved markets
+            (<span id="qrPct" class="text-blue-300">0%</span>)
+          </div>
+          <div class="text-xs text-slate-500 mt-2" id="qrQuery"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Market History Table -->
+    <section class="card p-5">
+      <h2 class="text-lg font-semibold mb-4">Market History</h2>
+      <!-- Remove Market Box -->
+      <div class="flex gap-2 mb-4">
+        <input id="removeSlugInput" type="text" placeholder="Enter slug to remove (e.g. btc-updown-5m-1771434300)"
+          class="flex-1 bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500" />
+        <button onclick="removeMarket()" class="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded transition-all">
+          Remove
+        </button>
+        <span id="removeStatus" class="text-xs self-center text-slate-400"></span>
+      </div>
+      <div id="strategyCounters" class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4"></div>
+      <div class="flex gap-3 border-b border-slate-700 mb-4 flex-wrap">
+        <button id="tabOverview" class="pb-2 px-1 text-sm tab-active" onclick="setHistoryTab('overview')">Overview</button>
+        <button id="tabStrategy1" class="pb-2 px-1 text-sm text-slate-400" onclick="setHistoryTab('strategy1')">Strategy 1</button>
+        <button id="tabStrategy2" class="pb-2 px-1 text-sm text-slate-400" onclick="setHistoryTab('strategy2')">Strategy 2</button>
+        <button id="tabStrategy3" class="pb-2 px-1 text-sm text-slate-400" onclick="setHistoryTab('strategy3')">Strategy 3</button>
+        <button id="tabStrategy4" class="pb-2 px-1 text-sm text-slate-400" onclick="setHistoryTab('strategy4')">Strategy 4</button>
+        <button id="tabStrategy5" class="pb-2 px-1 text-sm text-slate-400" onclick="setHistoryTab('strategy5')" style="display:none;">Strategy 5</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead id="marketTableHead"></thead>
+          <tbody id="marketTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Per-Market Chart (shown when a market is clicked) -->
+    <section class="card p-5" id="marketDetail" style="display:none;">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold" id="detailTitle">Market Detail</h2>
+        <button class="btn btn-sm" onclick="closeDetail()">&times; Close</button>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-center text-sm" id="detailStats"></div>
+      <div class="h-80">
+        <canvas id="detailChart"></canvas>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="text-center text-xs text-slate-600 py-4">
+    Polymarket BTC 5-Min Data Collector &mdash; Auto-refreshes every 2s
+  </footer>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────
+let liveChart = null;
+let detailChart = null;
+let lastTickMs = 0;
+let currentLiveSlug = null;
+let liveYesData = [];
+let liveNoData = [];
+let historyTab = 'overview';
+let marketType = '5m';
+
+function setMarketType(type) {
+  marketType = type;
+  const btn5m = document.getElementById('toggle5m');
+  const btn15m = document.getElementById('toggle15m');
+  const title = document.getElementById('headerTitle');
+  if (type === '5m') {
+    btn5m.className = 'px-4 py-1.5 rounded-md text-sm font-semibold transition-all bg-blue-600 text-white';
+    btn15m.className = 'px-4 py-1.5 rounded-md text-sm font-semibold transition-all text-slate-400 hover:text-white';
+    title.textContent = 'BTC 5-Min Market Collector';
+  } else {
+    btn15m.className = 'px-4 py-1.5 rounded-md text-sm font-semibold transition-all bg-blue-600 text-white';
+    btn5m.className = 'px-4 py-1.5 rounded-md text-sm font-semibold transition-all text-slate-400 hover:text-white';
+    title.textContent = 'BTC 15-Min Market Collector';
+  }
+  // Reset live chart state on switch
+  currentLiveSlug = null;
+  liveYesData = [];
+  liveNoData = [];
+  lastTickMs = 0;
+  if (liveChart) { liveChart.destroy(); liveChart = null; }
+  document.getElementById('liveSection').style.display = 'none';
+  refreshStats();
+  refreshMarkets();
+}
+
+// ── Utils ──────────────────────────────────────────────────────────
+const fmt = (v, d=4) => v != null ? Number(v).toFixed(d) : '—';
+const fmtPct = (v) => v != null ? (v * 100).toFixed(1) + '¢' : '—';
+const tsToTime = (ts) => {
+  const d = new Date(ts * 1000);
+  return d.toISOString().slice(11,19) + ' UTC';
+};
+
+// ── Fetch helpers ──────────────────────────────────────────────────
+async function fetchJson(url) {
+  const r = await fetch(url);
+  return r.json();
+}
+
+// ── Stats refresh ──────────────────────────────────────────────────
+async function refreshStats() {
+  try {
+    const s = await fetchJson(`/api/stats?market_type=${marketType}`);
+    document.getElementById('statTotal').textContent = s.total_markets;
+    document.getElementById('statResolved').textContent = s.resolved_markets;
+    document.getElementById('statActive').textContent = s.active_markets;
+    document.getElementById('statTicks').textContent = s.total_ticks.toLocaleString();
+    document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+    // Live market
+    const sec = document.getElementById('liveSection');
+    if (s.active_details && s.active_details.length > 0) {
+      sec.style.display = 'block';
+      const m = s.active_details[0];
+      document.getElementById('liveMarketInfo').textContent =
+        `${m.slug}  —  ${m.remaining_secs}s remaining`;
+      document.getElementById('liveYes').textContent = fmt(m.yes_mid);
+      document.getElementById('liveNo').textContent = fmt(m.no_mid);
+      document.getElementById('liveYesBid').textContent = fmt(m.yes_bid);
+      document.getElementById('liveYesAsk').textContent = fmt(m.yes_ask);
+      document.getElementById('liveNoBid').textContent = fmt(m.no_bid);
+      document.getElementById('liveNoAsk').textContent = fmt(m.no_ask);
+
+      // Load chart if new market
+      if (m.slug !== currentLiveSlug) {
+        currentLiveSlug = m.slug;
+        liveYesData = [];
+        liveNoData = [];
+        await loadLiveChart(m.slug);
+      }
+    } else {
+      sec.style.display = 'none';
+      currentLiveSlug = null;
+    }
+  } catch(e) { console.error('stats error', e); }
+}
+
+// ── Live chart ─────────────────────────────────────────────────────
+async function loadLiveChart(slug) {
+  const ticks = await fetchJson(`/api/market/${slug}/ticks`);
+  liveYesData = ticks.map(t => ({ x: t.seconds_elapsed, y: t.yes_mid })).filter(t => t.y != null);
+  liveNoData = ticks.map(t => ({ x: t.seconds_elapsed, y: t.no_mid })).filter(t => t.y != null);
+  if (ticks.length > 0) lastTickMs = Math.max(...ticks.map(t => t.epoch_ms));
+
+  const ctx = document.getElementById('liveChart').getContext('2d');
+  if (liveChart) liveChart.destroy();
+  liveChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'YES Mid', data: liveYesData, borderColor: '#22c55e', borderWidth: 1.5,
+          pointRadius: 0, tension: 0.2 },
+        { label: 'NO Mid', data: liveNoData, borderColor: '#ef4444', borderWidth: 1.5,
+          pointRadius: 0, tension: 0.2 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: { type: 'linear', title: { display: true, text: 'Seconds Elapsed', color: '#94a3b8' },
+             ticks: { color: '#64748b' }, grid: { color: '#1e293b' }, min: 0, max: marketType === '15m' ? 900 : 300 },
+        y: { title: { display: true, text: 'Price ($)', color: '#94a3b8' },
+             ticks: { color: '#64748b' }, grid: { color: '#1e293b' }, min: 0, max: 1 },
+      },
+      plugins: { legend: { labels: { color: '#94a3b8' } } },
+    }
+  });
+}
+
+async function refreshLiveTicks() {
+  if (!currentLiveSlug) return;
+  try {
+    const ticks = await fetchJson(`/api/live_ticks?since_ms=${lastTickMs}`);
+    if (ticks.length === 0) return;
+    for (const t of ticks) {
+      if (t.market_slug !== currentLiveSlug) continue;
+      if (t.yes_mid != null) liveYesData.push({ x: t.seconds_elapsed, y: t.yes_mid });
+      if (t.no_mid != null) liveNoData.push({ x: t.seconds_elapsed, y: t.no_mid });
+      if (t.epoch_ms > lastTickMs) lastTickMs = t.epoch_ms;
+    }
+    if (liveChart) liveChart.update();
+  } catch(e) {}
+}
+
+// ── Market table ───────────────────────────────────────────────────
+async function refreshMarkets() {
+  try {
+    const markets = await fetchJson(`/api/markets?market_type=${marketType}`);
+    const tableHead = document.getElementById('marketTableHead');
+    const tbody = document.getElementById('marketTable');
+
+    if (historyTab === 'overview') {
+      tableHead.innerHTML = `
+        <tr class="border-b border-slate-700 text-slate-400 text-left">
+          <th class="pb-2 pr-3">Market Slug</th>
+          <th class="pb-2 pr-3">Open Time (UTC)</th>
+          <th class="pb-2 pr-3">Status</th>
+          <th class="pb-2 pr-3">Ticks</th>
+          <th class="pb-2"></th>
+        </tr>`;
+      tbody.innerHTML = markets.map(m => {
+        const openTime = tsToTime(m.open_timestamp);
+        const status = m.resolved
+          ? '<span class="text-green-400">Resolved</span>'
+          : '<span class="text-amber-400">Active</span>';
+        return `<tr class="market-row border-b border-slate-800" onclick="showDetail('${m.slug}')">
+          <td class="py-2 pr-3 font-mono text-xs">${m.slug}</td>
+          <td class="py-2 pr-3 text-slate-400">${openTime}</td>
+          <td class="py-2 pr-3">${status}</td>
+          <td class="py-2 pr-3 text-slate-400">${m.tick_count}</td>
+          <td class="py-2"><span class="text-blue-400 text-xs">View →</span></td>
+        </tr>`;
+      }).join('');
+      return;
+    }
+
+    const resolved = markets.filter(m => m.resolved === 1);
+    const strategyMap = {
+      strategy1: { key: 'strategy1', label: 'Strategy 1' },
+      strategy2: { key: 'strategy2', label: 'Strategy 2' },
+      strategy3: { key: 'strategy3', label: 'Strategy 3' },
+      strategy4: { key: 'strategy4', label: 'Strategy 4' },
+      strategy5: { key: 'strategy5', label: 'Strategy 5 (15m)' },
+    };
+    const selected = strategyMap[historyTab] || strategyMap.strategy1;
+    const strategyKey = selected.key;
+    const strategyLabel = selected.label;
+
+    tableHead.innerHTML = `
+      <tr class="border-b border-slate-700 text-slate-400 text-left">
+        <th class="pb-2 pr-3">Market Slug</th>
+        <th class="pb-2 pr-3">Open (YES/NO)</th>
+        <th class="pb-2 pr-3">Winner</th>
+        <th class="pb-2 pr-3">${strategyLabel}</th>
+        <th class="pb-2"></th>
+      </tr>`;
+
+    tbody.innerHTML = resolved.map(m => {
+      const result = m[strategyKey];
+      let resultCell = '<span class="text-slate-500">—</span>';
+      if (result) {
+        resultCell = result.startsWith('won')
+          ? `<span class="pill-win">${result}</span>`
+          : `<span class="pill-loss">${result}</span>`;
+      }
+      const winner = m.winner
+        ? (m.winner === 'yes'
+          ? '<span class="text-green-400 font-semibold">YES</span>'
+          : '<span class="text-red-400 font-semibold">NO</span>')
+        : '<span class="text-slate-500">—</span>';
+
+      return `<tr class="market-row border-b border-slate-800" onclick="showDetail('${m.slug}')">
+        <td class="py-2 pr-3 font-mono text-xs">${m.slug}</td>
+        <td class="py-2 pr-3 text-slate-300">${fmt(m.yes_open, 3)} / ${fmt(m.no_open, 3)}</td>
+        <td class="py-2 pr-3">${winner}</td>
+        <td class="py-2 pr-3">${resultCell}</td>
+        <td class="py-2"><span class="text-blue-400 text-xs">View →</span></td>
+      </tr>`;
+    }).join('');
+
+    // Show/hide Strategy 5 tab based on market type
+    const s5tab = document.getElementById('tabStrategy5');
+    if (s5tab) s5tab.style.display = marketType === '15m' ? '' : 'none';
+    // If on strategy5 tab but switched to 5m, fall back to overview
+    if (historyTab === 'strategy5' && marketType !== '15m') {
+      setHistoryTab('overview');
+      return;
+    }
+    // Update strategy counters
+    updateStrategyCounters(resolved);
+  } catch(e) {}
+}
+
+function updateStrategyCounters(resolved) {
+  const counters = {
+    strategy1: { won: 0, lost: 0 },
+    strategy2: { won: 0, lost: 0 },
+    strategy3: { won: 0, lost: 0 },
+    strategy4: { won: 0, lost: 0 },
+    strategy5: { won: 0, lost: 0 },
+  };
+  const counters1dash = { won: 0, lost: 0 };
+
+  for (const m of resolved) {
+    for (const key of ['strategy1', 'strategy2', 'strategy3', 'strategy4', 'strategy5']) {
+      const result = m[key];
+      if (result) {
+        if (result.startsWith('won')) counters[key].won++;
+        else counters[key].lost++;
+      }
+    }
+    const s1 = m.strategy1;
+    if (s1) {
+      if (s1.startsWith('won-1')) counters1dash.won++;
+      if (s1.startsWith('lost-1')) counters1dash.lost++;
+    }
+  }
+
+  const is15m = marketType === '15m';
+  const items = [
+    { key: 'strategy1', label: 'Strategy 1' },
+    { key: 'strategy2', label: 'Strategy 2' },
+    { key: 'strategy3', label: 'Strategy 3' },
+    { key: 'strategy4', label: 'Strategy 4' },
+    { key: 'strategy1dash', label: 'Strategy 1-1' },
+  ];
+  if (is15m) items.push({ key: 'strategy5', label: 'Strategy 5 (15m)' });
+
+  const container = document.getElementById('strategyCounters');
+  container.innerHTML = items.map(({ key, label }) => {
+    let won, lost;
+    if (key === 'strategy1dash') {
+      ({ won, lost } = counters1dash);
+    } else {
+      ({ won, lost } = counters[key]);
+    }
+    const total = won + lost;
+    const winRate = total > 0 ? ((won / total) * 100).toFixed(1) : '0.0';
+    return `
+      <div class="card p-3 text-center" style="background:#0f172a;">
+        <div class="text-xs text-slate-400 mb-1">${label}</div>
+        <div class="text-sm font-semibold">
+          <span class="text-green-400">${won}</span> / <span class="text-red-400">${lost}</span>
+        </div>
+        <div class="text-xs text-slate-500">${winRate}% win</div>
+      </div>`;
+  }).join('');
+}
+
+function setHistoryTab(tab) {
+  historyTab = tab;
+  const tabs = {
+    overview: document.getElementById('tabOverview'),
+    strategy1: document.getElementById('tabStrategy1'),
+    strategy2: document.getElementById('tabStrategy2'),
+    strategy3: document.getElementById('tabStrategy3'),
+    strategy4: document.getElementById('tabStrategy4'),
+    strategy5: document.getElementById('tabStrategy5'),
+  };
+  Object.entries(tabs).forEach(([name, el]) => {
+    if (!el) return;
+    if (name === tab) {
+      el.classList.add('tab-active');
+      el.classList.remove('text-slate-400');
+    } else {
+      el.classList.remove('tab-active');
+      el.classList.add('text-slate-400');
+    }
+  });
+  refreshMarkets();
+}
+
+async function removeMarket() {
+  const input = document.getElementById('removeSlugInput');
+  const status = document.getElementById('removeStatus');
+  const slug = input.value.trim();
+  if (!slug) { status.textContent = 'Enter a slug first.'; return; }
+  status.textContent = 'Removing…';
+  try {
+    const r = await fetch(`/api/market/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+    const data = await r.json();
+    if (data.deleted) {
+      status.textContent = `✓ Removed ${data.deleted}`;
+      input.value = '';
+      refreshMarkets();
+    } else {
+      status.textContent = 'Not found.';
+    }
+  } catch(e) {
+    status.textContent = 'Error removing market.';
+  }
+}
+
+// ── Detail chart ───────────────────────────────────────────────────
+async function showDetail(slug) {
+  document.getElementById('marketDetail').style.display = 'block';
+  document.getElementById('detailTitle').textContent = slug;
+
+  // Fetch summary
+  const summary = await fetchJson(`/api/market/${slug}/summary`);
+  const ds = document.getElementById('detailStats');
+  ds.innerHTML = `
+    <div class="card p-2" style="background:#0f172a;">
+      <div class="text-xs text-slate-400">YES Open→Close</div>
+      <div class="text-green-400 font-bold">${fmt(summary.yes_open)} → ${fmt(summary.yes_close)}</div>
+    </div>
+    <div class="card p-2" style="background:#0f172a;">
+      <div class="text-xs text-slate-400">YES Range</div>
+      <div class="text-green-400 font-bold">${fmt(summary.yes_min)} – ${fmt(summary.yes_max)}</div>
+    </div>
+    <div class="card p-2" style="background:#0f172a;">
+      <div class="text-xs text-slate-400">NO Open→Close</div>
+      <div class="text-red-400 font-bold">${fmt(summary.no_open)} → ${fmt(summary.no_close)}</div>
+    </div>
+    <div class="card p-2" style="background:#0f172a;">
+      <div class="text-xs text-slate-400">NO Range</div>
+      <div class="text-red-400 font-bold">${fmt(summary.no_min)} – ${fmt(summary.no_max)}</div>
+    </div>`;
+
+  // Fetch ticks and draw chart
+  const ticks = await fetchJson(`/api/market/${slug}/ticks`);
+  const yesD = ticks.map(t => ({ x: t.seconds_elapsed, y: t.yes_mid })).filter(t => t.y != null);
+  const noD = ticks.map(t => ({ x: t.seconds_elapsed, y: t.no_mid })).filter(t => t.y != null);
+
+  const ctx = document.getElementById('detailChart').getContext('2d');
+  if (detailChart) detailChart.destroy();
+  const xMax = (slug.includes('-15m-')) ? 900 : 300;
+  detailChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'YES Mid', data: yesD, borderColor: '#22c55e', borderWidth: 1.5,
+          pointRadius: 0, tension: 0.2, fill: { target: 'origin', above: 'rgba(34,197,94,0.05)' } },
+        { label: 'NO Mid', data: noD, borderColor: '#ef4444', borderWidth: 1.5,
+          pointRadius: 0, tension: 0.2, fill: { target: 'origin', above: 'rgba(239,68,68,0.05)' } },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { type: 'linear', title: { display: true, text: 'Seconds Elapsed', color: '#94a3b8' },
+             ticks: { color: '#64748b' }, grid: { color: '#1e293b' }, min: 0, max: xMax },
+        y: { title: { display: true, text: 'Price ($)', color: '#94a3b8' },
+             ticks: { color: '#64748b' }, grid: { color: '#1e293b' }, min: 0, max: 1 },
+      },
+      plugins: { legend: { labels: { color: '#94a3b8' } } },
+    }
+  });
+
+  document.getElementById('marketDetail').scrollIntoView({ behavior: 'smooth' });
+}
+
+function closeDetail() {
+  document.getElementById('marketDetail').style.display = 'none';
+  if (detailChart) { detailChart.destroy(); detailChart = null; }
+}
+
+// ── Price query ────────────────────────────────────────────────────
+async function runQuery() {
+  const side = document.getElementById('qSide').value;
+  const op = document.getElementById('qOp').value;
+  const value = document.getElementById('qValue').value;
+  const ptype = document.getElementById('qType').value;
+
+  const data = await fetchJson(
+    `/api/query?side=${side}&op=${op}&value=${value}&price_type=${ptype}&market_type=${marketType}`
+  );
+
+  document.getElementById('queryResult').style.display = 'block';
+  document.getElementById('qrCount').textContent = data.matching_markets;
+  document.getElementById('qrTotal').textContent = data.total_resolved;
+  document.getElementById('qrPct').textContent = data.percentage + '%';
+  document.getElementById('qrQuery').textContent = data.query;
+}
+
+function onSlider(val) {
+  document.getElementById('sliderVal').textContent = Number(val).toFixed(2);
+  document.getElementById('qValue').value = val;
+  runQuery();
+}
+
+// ── Polling loop ───────────────────────────────────────────────────
+async function poll() {
+  await Promise.all([refreshStats(), refreshLiveTicks()]);
+}
+
+// Initial load
+(async () => {
+  await refreshStats();
+  await refreshMarkets();
+  // Poll stats + live ticks every 2s
+  setInterval(poll, 2000);
+  // Refresh market table every 10s
+  setInterval(refreshMarkets, 10000);
+})();
+</script>
+
+</body>
+</html>

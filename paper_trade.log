@@ -1,0 +1,38 @@
+
+============================================================
+  SATTEBAAZ PAPER TRADER
+  Real Polymarket + Binance data, simulated fills
+============================================================
+  Starting capital:    $5.00
+  MM fill probability: 25%
+  Taker fill prob:     80%
+  Markets: BTC-5m, BTC-15m, ETH-15m, SOL-15m, XRP-15m
+  Fees: 5m=FREE | 15m=taker (fee_rate_bps=1000)
+============================================================
+
+[2m2026-02-14T00:27:17.922785Z[0m [32m INFO[0m Starting Polymarket feed...
+[2m2026-02-14T00:27:17.922897Z[0m [32m INFO[0m Connecting to Binance WS: wss://fstream.binance.com/ws/stream?streams=btcusdt@aggTrade/btcusdt@kline_1m/ethusdt@aggTrade/ethusdt@kline_1m/solusdt@aggTrade/solusdt@kline_1m/xrpusdt@aggTrade/xrpusdt@kline_1m/btcusdt@forceOrder/ethusdt@forceOrder/solusdt@forceOrder/xrpusdt@forceOrder
+[2m2026-02-14T00:27:17.923532Z[0m [32m INFO[0m Feeds starting... waiting 10s for data
+[2m2026-02-14T00:27:17.923632Z[0m [32m INFO[0m Connecting to Polymarket WS: wss://ws-subscriptions-clob.polymarket.com/ws/market
+[2m2026-02-14T00:27:18.088759Z[0m [32m INFO[0m Discovered market: btc-updown-5m-1771028700 (YES=19286764, NO=45947446)
+[2m2026-02-14T00:27:18.314637Z[0m [32m INFO[0m Polymarket WS connected
+[2m2026-02-14T00:27:18.316986Z[0m [32m INFO[0m Subscribed to 1 token books
+[2m2026-02-14T00:27:18.547205Z[0m [32m INFO[0m Discovered market: btc-updown-5m-1771029000 (YES=10860316, NO=10434246)
+[2m2026-02-14T00:27:18.630479Z[0m [32m INFO[0m Binance WS connected
+[2m2026-02-14T00:27:18.941720Z[0m [32m INFO[0m Discovered market: btc-updown-15m-1771028100 (YES=10012364, NO=36329350)
+[2m2026-02-14T00:27:19.306157Z[0m [32m INFO[0m Discovered market: btc-updown-15m-1771029000 (YES=10358227, NO=66653787)
+[2m2026-02-14T00:27:19.595713Z[0m [32m INFO[0m Discovered market: eth-updown-15m-1771028100 (YES=59532168, NO=45414291)
+[2m2026-02-14T00:27:20.262751Z[0m [32m INFO[0m Discovered market: eth-updown-15m-1771029000 (YES=10894056, NO=11932518)
+[2m2026-02-14T00:27:20.567203Z[0m [32m INFO[0m Discovered market: sol-updown-15m-1771028100 (YES=10397943, NO=78043350)
+[2m2026-02-14T00:27:21.070235Z[0m [32m INFO[0m Discovered market: sol-updown-15m-1771029000 (YES=11213242, NO=76414420)
+[2m2026-02-14T00:27:21.521855Z[0m [32m INFO[0m Discovered market: xrp-updown-15m-1771028100 (YES=73670339, NO=52301384)
+[2m2026-02-14T00:27:21.995851Z[0m [32m INFO[0m Discovered market: xrp-updown-15m-1771029000 (YES=96384383, NO=96047275)
+  --- Discovered markets ---
+  BTC FiveMin: btc-updown-5m-1771028700 | 153s left | LIVE
+  BTC FifteenMin: btc-updown-15m-1771028100 | 153s left | LIVE
+  ETH FifteenMin: eth-updown-15m-1771028100 | 153s left | LIVE
+  SOL FifteenMin: sol-updown-15m-1771028100 | 153s left | LIVE
+  XRP FifteenMin: xrp-updown-15m-1771028100 | 153s left | LIVE
+
+  Paper trading active. Press Ctrl+C to stop.
+

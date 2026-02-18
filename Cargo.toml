@@ -1,0 +1,35 @@
+[package]
+name = "sattebaaz"
+version = "0.1.0"
+edition = "2021"
+description = "Elite Polymarket short-duration prediction market trading bot"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+dashmap = "6"
+statrs = "0.17"
+rust_decimal = { version = "1", features = ["serde-with-str"] }
+rust_decimal_macros = "1"
+dotenv = "0.15"
+anyhow = "1"
+thiserror = "2"
+futures-util = "0.3"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+alloy-primitives = { version = "0.8", features = ["serde"] }
+alloy-sol-types = "0.8"
+alloy-signer = "0.8"
+alloy-signer-local = "0.8"
+hex = "0.4"
+rand = "0.8"
+alloy-rlp = "0.3"
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
