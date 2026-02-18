@@ -288,7 +288,6 @@ class PriceCollector:
             self._discovery_loop("15m"),
             self._rest_poll_loop(),
             self._ws_loop(),
-            self._stats_loop(),
         )
 
     # ── Discovery loop ──────────────────────────────────────────────
@@ -465,26 +464,4 @@ class PriceCollector:
                 if self._save_tick(slug, source="ws"):
                     self._ws_tick_count += 1
 
-    # ── Stats logging ───────────────────────────────────────────────
-
-    async def _stats_loop(self):
-        while self._running:
-            await asyncio.sleep(30)
-            for mtype in ("5m", "15m"):
-                s = self.get_stats(mtype)
-                logger.info(
-                    f"[STATS {mtype}] {s['total_markets']} markets | "
-                    f"{s['resolved_markets']} resolved, {s['active_markets']} active | "
-                    f"{s['total_ticks']} ticks (REST:{self._rest_tick_count} WS:{self._ws_tick_count}) | "
-                    f"WS msgs: {self._ws_msg_count}"
-                )
-            for slug, m in list(self.markets.items()):
-                rem = m["close_ts"] - int(time.time())
-                yes_bid, yes_ask = self._best_prices(m["yes_token_id"])
-                no_bid, no_ask = self._best_prices(m["no_token_id"])
-                yes_mid = round((yes_bid + yes_ask) / 2, 4) if yes_bid and yes_ask else None
-                no_mid = round((no_bid + no_ask) / 2, 4) if no_bid and no_ask else None
-                logger.info(
-                    f"  [{m.get('market_type','5m')}] {slug}  ({max(0,rem)}s left)  "
-                    f"YES={yes_mid}  NO={no_mid}"
-                )
+    
