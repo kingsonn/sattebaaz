@@ -441,6 +441,7 @@ function updateStrategyCounters(resolved) {
     strategy5: { won: 0, lost: 0 },
   };
   const counters1dash = { won: 0, lost: 0 };
+  let strategy5SignalValues = [];
 
   for (const m of resolved) {
     for (const key of ['strategy1', 'strategy2', 'strategy3', 'strategy4', 'strategy5']) {
@@ -455,7 +456,16 @@ function updateStrategyCounters(resolved) {
       if (s1.startsWith('won-1')) counters1dash.won++;
       if (s1.startsWith('lost-1')) counters1dash.lost++;
     }
+    // Collect signal values for won Strategy 5 markets
+    if (m.strategy5 === 'won' && m.strategy5_signal_value) {
+      strategy5SignalValues.push(m.strategy5_signal_value);
+    }
   }
+
+  // Calculate average signal value for Strategy 5
+  const avgSignalValue = strategy5SignalValues.length > 0 
+    ? (strategy5SignalValues.reduce((a, b) => a + b, 0) / strategy5SignalValues.length).toFixed(3)
+    : null;
 
   const is15m = marketType === '15m';
   const items = [
@@ -477,6 +487,13 @@ function updateStrategyCounters(resolved) {
     }
     const total = won + lost;
     const winRate = total > 0 ? ((won / total) * 100).toFixed(1) : '0.0';
+    
+    // Add avg signal value for Strategy 5
+    let extraInfo = '';
+    if (key === 'strategy5' && avgSignalValue !== null) {
+      extraInfo = `<div class="text-xs text-blue-400 mt-1">Avg: ${avgSignalValue}</div>`;
+    }
+    
     return `
       <div class="card p-3 text-center" style="background:#0f172a;">
         <div class="text-xs text-slate-400 mb-1">${label}</div>
@@ -484,6 +501,7 @@ function updateStrategyCounters(resolved) {
           <span class="text-green-400">${won}</span> / <span class="text-red-400">${lost}</span>
         </div>
         <div class="text-xs text-slate-500">${winRate}% win</div>
+        ${extraInfo}
       </div>`;
   }).join('');
 }

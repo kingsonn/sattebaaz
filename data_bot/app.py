@@ -226,16 +226,21 @@ async def api_markets(market_type: str = Query("5m", pattern="^(5m|15m)$")):
                         (slug,),
                     ).fetchall()
                     signal_side = None
+                    signal_value = None
                     for tick in ticks_with_elapsed:
                         y = tick["yes_mid"]
                         n = tick["no_mid"]
                         if signal_side is None:
                             if y is not None and y >= 0.66:
                                 signal_side = "yes"
+                                signal_value = y
                             elif n is not None and n >= 0.66:
                                 signal_side = "no"
+                                signal_value = n
                     if signal_side is not None:
                         m["strategy5"] = "won" if winner == signal_side else "lost"
+                        if winner == signal_side:
+                            m["strategy5_signal_value"] = max(signal_value, 0.66)
 
         markets.append(m)
 
