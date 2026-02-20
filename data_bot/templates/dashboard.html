@@ -441,9 +441,27 @@ function updateStrategyCounters(resolved) {
     strategy5: { won: 0, lost: 0 },
   };
   const counters1dash = { won: 0, lost: 0 };
+  const counters2dash = { won: 0, lost: 0 }; // Strategy 2-1 (excluding NY session)
+  const counters5dash = { won: 0, lost: 0 }; // Strategy 5-1 (excluding NY session)
   let strategy5SignalValues = [];
+  let strategy5dashSignalValues = []; // For Strategy 5-1 average
+
+  // Helper function to check if time is in NY session (8pm-2:30am IST)
+  function isInNYSession(timestamp) {
+    const date = new Date(timestamp * 1000);
+    const istHour = date.getUTCHours() + 5.5; // IST = UTC + 5:30
+    const hour = Math.floor(istHour % 24);
+    const minute = Math.floor((istHour % 1) * 60);
+    
+    // NY session: 8pm (20:00) to 2:30am (02:30) IST
+    if (hour >= 20 || hour < 2) return true;
+    if (hour === 2 && minute <= 30) return true;
+    return false;
+  }
 
   for (const m of resolved) {
+    const isNYSession = isInNYSession(m.close_timestamp);
+    
     for (const key of ['strategy1', 'strategy2', 'strategy3', 'strategy4', 'strategy5']) {
       const result = m[key];
       if (result) {
@@ -456,15 +474,40 @@ function updateStrategyCounters(resolved) {
       if (s1.startsWith('won-1')) counters1dash.won++;
       if (s1.startsWith('lost-1')) counters1dash.lost++;
     }
+    
+    // Strategy 2-1: count only non-NY session markets
+    const s2 = m.strategy2;
+    if (s2 && !isNYSession) {
+      if (s2.startsWith('won')) counters2dash.won++;
+      else if (s2.startsWith('lost')) counters2dash.lost++;
+    }
+    
+    // Strategy 5-1: count only non-NY session markets
+    const s5 = m.strategy5;
+    if (s5 && !isNYSession) {
+      if (s5.startsWith('won')) counters5dash.won++;
+      else if (s5.startsWith('lost')) counters5dash.lost++;
+    }
+    
     // Collect signal values for won Strategy 5 markets
     if (m.strategy5 === 'won' && m.strategy5_signal_value) {
       strategy5SignalValues.push(m.strategy5_signal_value);
+    }
+    
+    // Collect signal values for won Strategy 5-1 markets (non-NY session)
+    if (m.strategy5 === 'won' && m.strategy5_signal_value && !isNYSession) {
+      strategy5dashSignalValues.push(m.strategy5_signal_value);
     }
   }
 
   // Calculate average signal value for Strategy 5
   const avgSignalValue = strategy5SignalValues.length > 0 
     ? (strategy5SignalValues.reduce((a, b) => a + b, 0) / strategy5SignalValues.length).toFixed(3)
+    : null;
+
+  // Calculate average signal value for Strategy 5-1
+  const avgSignalValue5dash = strategy5dashSignalValues.length > 0 
+    ? (strategy5dashSignalValues.reduce((a, b) => a + b, 0) / strategy5dashSignalValues.length).toFixed(3)
     : null;
 
   const is15m = marketType === '15m';
@@ -474,14 +517,20 @@ function updateStrategyCounters(resolved) {
     { key: 'strategy3', label: 'Strategy 3' },
     { key: 'strategy4', label: 'Strategy 4' },
     { key: 'strategy1dash', label: 'Strategy 1-1' },
+    { key: 'strategy2dash', label: 'Strategy 2-1' },
   ];
   if (is15m) items.push({ key: 'strategy5', label: 'Strategy 5 (15m)' });
+  if (is15m) items.push({ key: 'strategy5dash', label: 'Strategy 5-1' });
 
   const container = document.getElementById('strategyCounters');
   container.innerHTML = items.map(({ key, label }) => {
     let won, lost;
     if (key === 'strategy1dash') {
       ({ won, lost } = counters1dash);
+    } else if (key === 'strategy2dash') {
+      ({ won, lost } = counters2dash);
+    } else if (key === 'strategy5dash') {
+      ({ won, lost } = counters5dash);
     } else {
       ({ won, lost } = counters[key]);
     }
@@ -492,6 +541,21 @@ function updateStrategyCounters(resolved) {
     let extraInfo = '';
     if (key === 'strategy5' && avgSignalValue !== null) {
       extraInfo = `<div class="text-xs text-blue-400 mt-1">Avg: ${avgSignalValue}</div>`;
+    }
+    
+    // Add avg signal value for Strategy 5-1
+    if (key === 'strategy5dash' && avgSignalValue5dash !== null) {
+      extraInfo = `<div class="text-xs text-blue-400 mt-1">Avg: ${avgSignalValue5dash}</div>`;
+    }
+    
+    // Add note for Strategy 2-1 (excludes NY session)
+    if (key === 'strategy2dash') {
+      extraInfo = `<div class="text-xs text-slate-500 mt-1">(excl. NY)</div>`;
+    }
+    
+    // Add note for Strategy 5-1 (excludes NY session)
+    if (key === 'strategy5dash') {
+      extraInfo = `<div class="text-xs text-slate-500 mt-1">(excl. NY)</div>`;
     }
     
     return `
