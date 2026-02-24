@@ -11,6 +11,9 @@ import logging
 import sys
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from contextlib import asynccontextmanager
 
@@ -20,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from collector import PriceCollector
+from order_executor import OrderExecutor
 
 # ── Logging ─────────────────────────────────────────────────────────
 
@@ -45,6 +49,7 @@ PORT = int(os.environ.get("PORT", "8050"))
 # ── Collector instance (shared with web) ────────────────────────────
 
 collector = PriceCollector(db_path=DB_PATH)
+executor = OrderExecutor(collector)
 
 # ── FastAPI ─────────────────────────────────────────────────────────
 
@@ -422,6 +427,37 @@ async def api_live_ticks(since_ms: int = Query(0)):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── Bot Control API ──────────────────────────────────────────────────
+
+@app.post("/api/bot/start")
+async def api_bot_start(request: Request):
+    try:
+        body = await request.json()
+        market_type = body.get("market_type", "5m")
+        share_size = float(body.get("share_size", 5))
+        return executor.start(market_type, share_size)
+    except Exception as e:
+        logger.exception("Bot start error")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/bot/stop")
+async def api_bot_stop():
+    try:
+        return executor.stop()
+    except Exception as e:
+        logger.exception("Bot stop error")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/bot/status")
+async def api_bot_status():
+    try:
+        return executor.get_status()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ── Main ────────────────────────────────────────────────────────────

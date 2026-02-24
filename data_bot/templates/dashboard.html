@@ -106,6 +106,65 @@
       </div>
     </section>
 
+    <!-- Order Bot Control -->
+    <section class="card p-5" id="botSection">
+      <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+        <span>Order Bot</span>
+        <span id="botStateBadge" class="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">idle</span>
+      </h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <!-- Controls -->
+        <div class="space-y-3">
+          <div class="flex items-center gap-3">
+            <label class="text-xs text-slate-400 w-24">Timeframe</label>
+            <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1" id="botTimeframeToggle">
+              <button id="botToggle5m" onclick="setBotTimeframe('5m')"
+                class="px-3 py-1 rounded-md text-xs font-semibold transition-all bg-blue-600 text-white">5 Min</button>
+              <button id="botToggle15m" onclick="setBotTimeframe('15m')"
+                class="px-3 py-1 rounded-md text-xs font-semibold transition-all text-slate-400 hover:text-white">15 Min</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="text-xs text-slate-400 w-24">Shares</label>
+            <input type="number" id="botShares" value="5" min="5" step="1"
+              class="w-24 text-sm">
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="text-xs text-slate-400 w-24">Price</label>
+            <span class="text-sm text-white font-mono">$0.95 GTC (both sides)</span>
+          </div>
+          <div class="flex gap-2 mt-2">
+            <button id="botStartBtn" onclick="startBot()"
+              class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-all">
+              Start
+            </button>
+            <button id="botStopBtn" onclick="stopBot()" disabled
+              class="px-6 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all opacity-50 cursor-not-allowed">
+              Stop
+            </button>
+          </div>
+        </div>
+
+        <!-- Status -->
+        <div class="card p-3" style="background:#0f172a;">
+          <div class="text-xs text-slate-400 mb-2 font-semibold">Bot Status</div>
+          <div class="space-y-1 text-xs font-mono" id="botStatusInfo">
+            <div>State: <span class="text-slate-300" id="botStateText">idle</span></div>
+            <div>Market: <span class="text-slate-300" id="botMarketText">—</span></div>
+            <div>Filled: <span class="text-slate-300" id="botFilledText">—</span></div>
+            <div>Orders: <span class="text-slate-300" id="botOrdersText">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="card p-3" style="background:#0f172a; max-height:200px; overflow-y:auto;" id="botLogContainer">
+        <div class="text-xs text-slate-400 mb-1 font-semibold">Activity Log</div>
+        <div id="botLog" class="text-xs font-mono text-slate-500 space-y-0.5"></div>
+      </div>
+    </section>
+
     <!-- Price Query Tool -->
     <section class="card p-5">
       <h2 class="text-lg font-semibold mb-4">Price Query</h2>
@@ -702,16 +761,153 @@ function onSlider(val) {
   runQuery();
 }
 
+// ── Order Bot ──────────────────────────────────────────────────────
+let botTimeframe = '5m';
+let botActive = false;
+
+function setBotTimeframe(tf) {
+  if (botActive) return; // locked while running
+  botTimeframe = tf;
+  const btn5 = document.getElementById('botToggle5m');
+  const btn15 = document.getElementById('botToggle15m');
+  if (tf === '5m') {
+    btn5.className = 'px-3 py-1 rounded-md text-xs font-semibold transition-all bg-blue-600 text-white';
+    btn15.className = 'px-3 py-1 rounded-md text-xs font-semibold transition-all text-slate-400 hover:text-white';
+  } else {
+    btn15.className = 'px-3 py-1 rounded-md text-xs font-semibold transition-all bg-blue-600 text-white';
+    btn5.className = 'px-3 py-1 rounded-md text-xs font-semibold transition-all text-slate-400 hover:text-white';
+  }
+}
+
+async function startBot() {
+  const shares = parseInt(document.getElementById('botShares').value) || 5;
+  if (shares < 5) { alert('Minimum 5 shares'); return; }
+  try {
+    const resp = await fetch('/api/bot/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ market_type: botTimeframe, share_size: shares }),
+    });
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+    botActive = true;
+    updateBotUI(true);
+  } catch(e) { alert('Error starting bot: ' + e); }
+}
+
+async function stopBot() {
+  try {
+    const resp = await fetch('/api/bot/stop', { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+  } catch(e) { alert('Error stopping bot: ' + e); }
+}
+
+function updateBotUI(running) {
+  const startBtn = document.getElementById('botStartBtn');
+  const stopBtn = document.getElementById('botStopBtn');
+  const sharesInput = document.getElementById('botShares');
+  const tfToggle = document.getElementById('botTimeframeToggle');
+
+  if (running) {
+    startBtn.disabled = true;
+    startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    stopBtn.disabled = false;
+    stopBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    sharesInput.disabled = true;
+    sharesInput.classList.add('opacity-50');
+    tfToggle.classList.add('opacity-50', 'pointer-events-none');
+  } else {
+    startBtn.disabled = false;
+    startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    stopBtn.disabled = true;
+    stopBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    sharesInput.disabled = false;
+    sharesInput.classList.remove('opacity-50');
+    tfToggle.classList.remove('opacity-50', 'pointer-events-none');
+    botActive = false;
+  }
+}
+
+async function refreshBotStatus() {
+  try {
+    const data = await fetchJson('/api/bot/status');
+    const badge = document.getElementById('botStateBadge');
+    const stateText = document.getElementById('botStateText');
+    const marketText = document.getElementById('botMarketText');
+    const filledText = document.getElementById('botFilledText');
+    const ordersText = document.getElementById('botOrdersText');
+    const logEl = document.getElementById('botLog');
+
+    // State badge colors
+    const stateColors = {
+      idle: 'bg-slate-700 text-slate-400',
+      waiting_for_market: 'bg-amber-900 text-amber-400',
+      monitoring_prices: 'bg-yellow-900 text-yellow-400',
+      order_placed: 'bg-blue-900 text-blue-400',
+      position_held: 'bg-purple-900 text-purple-400',
+      resolving: 'bg-cyan-900 text-cyan-400',
+      redeeming: 'bg-green-900 text-green-400',
+    };
+    const stateLabels = {
+      idle: 'Idle',
+      waiting_for_market: 'Waiting for Market',
+      monitoring_prices: 'Monitoring Prices',
+      order_placed: 'Order Placed',
+      position_held: 'Position Held',
+      resolving: 'Resolving',
+      redeeming: 'Redeeming',
+    };
+
+    const state = data.state || 'idle';
+    badge.className = `text-xs px-2 py-0.5 rounded-full ${stateColors[state] || stateColors.idle}`;
+    badge.textContent = stateLabels[state] || state;
+    stateText.textContent = stateLabels[state] || state;
+
+    if (data.stop_requested && data.running) {
+      badge.textContent += ' (stopping)';
+    }
+
+    // Cycle info
+    if (data.cycle) {
+      marketText.textContent = data.cycle.slug || '—';
+      filledText.textContent = data.cycle.filled_side ? data.cycle.filled_side.toUpperCase() : '—';
+      const side = data.cycle.order_side ? data.cycle.order_side.toUpperCase() : '—';
+      const oid = data.cycle.order_id ? data.cycle.order_id.substring(0, 16) + '...' : '—';
+      ordersText.textContent = `${side}: ${oid}`;
+    } else {
+      marketText.textContent = '—';
+      filledText.textContent = '—';
+      ordersText.textContent = '—';
+    }
+
+    // Logs
+    if (data.logs && data.logs.length > 0) {
+      logEl.innerHTML = data.logs.map(l => `<div>${l}</div>`).join('');
+      const container = document.getElementById('botLogContainer');
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // Sync UI state
+    if (data.running) {
+      if (!botActive) { botActive = true; updateBotUI(true); }
+    } else {
+      if (botActive) { botActive = false; updateBotUI(false); }
+    }
+  } catch(e) {}
+}
+
 // ── Polling loop ───────────────────────────────────────────────────
 async function poll() {
-  await Promise.all([refreshStats(), refreshLiveTicks()]);
+  await Promise.all([refreshStats(), refreshLiveTicks(), refreshBotStatus()]);
 }
 
 // Initial load
 (async () => {
   await refreshStats();
   await refreshMarkets();
-  // Poll stats + live ticks every 2s
+  await refreshBotStatus();
+  // Poll stats + live ticks + bot status every 2s
   setInterval(poll, 2000);
   // Refresh market table every 10s
   setInterval(refreshMarkets, 10000);
