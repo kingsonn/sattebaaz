@@ -382,7 +382,12 @@ class OrderExecutor:
             self._log(f"NO ask = {no_ask} >= {ORDER_PRICE} -- placing BUY NO")
 
         if target_side is None:
-            return  # Neither side reached target yet; keep monitoring
+            # If market has closed without a signal, abandon and wait for next
+            if self.cycle and now >= self.cycle.close_ts:
+                self._log(f"Market {self.cycle.market_slug} closed with no signal -- moving on")
+                self.cycle = None
+                self.state = BotState.WAITING_FOR_MARKET
+            return
 
         # Place a single GTC BUY limit order at ORDER_PRICE
         success = await self._place_single_order(target_side, target_token)
