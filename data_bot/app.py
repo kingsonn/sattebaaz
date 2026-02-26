@@ -50,6 +50,8 @@ PORT = int(os.environ.get("PORT", "8050"))
 
 collector = PriceCollector(db_path=DB_PATH)
 executor = OrderExecutor(collector)
+# Wire WS trigger: collector fires this event when a 95c ask is seen
+collector._executor_ws_trigger = executor._ws_price_trigger
 
 # ── FastAPI ─────────────────────────────────────────────────────────
 

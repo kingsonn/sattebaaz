@@ -40,6 +40,8 @@ class PriceCollector:
         self._ws_msg_count = 0
         self._ws_tick_count = 0
         self._rest_tick_count = 0
+        # Optional reference to executor's asyncio.Event — set by app.py after init
+        self._executor_ws_trigger = None
         self._init_db()
 
     # ── Database setup ──────────────────────────────────────────────
@@ -463,5 +465,15 @@ class PriceCollector:
                 self._apply_book_delta(asset_id, bids, asks)
                 if self._save_tick(slug, source="ws"):
                     self._ws_tick_count += 1
+
+                # Fire the executor trigger if any ask level is at or above 0.95
+                if self._executor_ws_trigger is not None and asks:
+                    for level in asks:
+                        try:
+                            if float(level["price"]) >= 0.95:
+                                self._executor_ws_trigger.set()
+                                break
+                        except (KeyError, ValueError, TypeError):
+                            pass
 
     

@@ -93,6 +93,9 @@ class OrderExecutor:
         # Track which slug was active when Start was pressed (to skip it)
         self._skip_slug: Optional[str] = None
 
+        # Event set by the collector when a 95c ask is seen for monitored tokens
+        self._ws_price_trigger: asyncio.Event = asyncio.Event()
+
     # ── Logging ────────────────────────────────────────────────────
 
     def _log(self, msg: str):
@@ -256,7 +259,7 @@ class OrderExecutor:
                 elif self.state == BotState.IDLE:
                     break
 
-                await asyncio.sleep(2)
+                await asyncio.sleep(0.5)
 
         except Exception as e:
             self._log(f"ERROR in run loop: {e}")
@@ -319,30 +322,32 @@ class OrderExecutor:
     # ── Periodic redemption sweep ──────────────────────────────────
 
     async def _redemption_sweep_loop(self):
-        """Every 60 seconds, query the positions API and redeem anything redeemable."""
-        SWEEP_INTERVAL = 60  # seconds
-        DATA_API = "https://data-api.polymarket.com"
+        """Every 20 seconds, redeem any claimable positions. Retries up to 3x on failure."""
+        SWEEP_INTERVAL = 20  # seconds
+        MAX_RETRIES = 3
+        RETRY_DELAY = 5  # seconds between retries
 
-        await asyncio.sleep(30)  # brief initial delay so init settles
+        # No initial delay — sweep immediately on start to clear any leftover tokens
         while True:
-            try:
-                await self._sweep_redeemable_positions(DATA_API)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.debug(f"Redemption sweep error: {e}")
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    await self._sweep_redeemable_positions()
+                    break  # success — no need to retry
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.debug(f"Redemption sweep attempt {attempt}/{MAX_RETRIES} failed: {e}")
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_DELAY)
             await asyncio.sleep(SWEEP_INTERVAL)
 
-    async def _sweep_redeemable_positions(self, _data_api: str):
+    async def _sweep_redeemable_positions(self):
         """Use poly-web3 redeem_all() to claim any winning resolved positions."""
         if not self._relay:
             return
-        try:
-            results = await asyncio.to_thread(self._relay.redeem_all, 10)
-            if results:
-                self._log(f"Sweep: redeemed {len(results)} position(s)")
-        except Exception as e:
-            logger.debug(f"Redemption sweep error: {e}")
+        results = await asyncio.to_thread(self._relay.redeem_all, 10)
+        if results:
+            self._log(f"Sweep: redeemed {len(results)} position(s)")
 
     async def _redeem_condition(self, condition_id: str, neg_risk: bool, label: str = ""):
         """Redeem a single condition via poly-web3."""
@@ -359,9 +364,18 @@ class OrderExecutor:
 
     async def _monitor_prices(self):
         """Check YES and NO best ask prices. Place a single BUY order
-        for the first side whose ask reaches >= ORDER_PRICE."""
+        for the first side whose ask reaches >= ORDER_PRICE.
+        Wakes immediately on WS price trigger or polls every 0.5s."""
         if not self.cycle:
             return
+
+        # Wait for WS trigger or fall through after a short timeout
+        # (clears the event so each trigger fires once)
+        try:
+            await asyncio.wait_for(self._ws_price_trigger.wait(), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
+        self._ws_price_trigger.clear()
 
         now = int(time.time())
 
