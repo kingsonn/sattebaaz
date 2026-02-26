@@ -158,6 +158,34 @@
         </div>
       </div>
 
+      <!-- CLOB Order Stats -->
+      <div class="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4" id="clobStatsRow">
+        <div class="card p-3 text-center" style="background:#0f172a;">
+          <div class="text-xl font-bold text-blue-400" id="clobPlaced">—</div>
+          <div class="text-xs text-slate-500 mt-0.5">Placed</div>
+        </div>
+        <div class="card p-3 text-center" style="background:#0f172a;">
+          <div class="text-xl font-bold text-cyan-400" id="clobFilled">—</div>
+          <div class="text-xs text-slate-500 mt-0.5">Filled</div>
+        </div>
+        <div class="card p-3 text-center" style="background:#0f172a;">
+          <div class="text-xl font-bold text-green-400" id="clobWins">—</div>
+          <div class="text-xs text-slate-500 mt-0.5">Wins</div>
+        </div>
+        <div class="card p-3 text-center" style="background:#0f172a;">
+          <div class="text-xl font-bold text-red-400" id="clobLosses">—</div>
+          <div class="text-xs text-slate-500 mt-0.5">Losses</div>
+        </div>
+        <div class="card p-3 text-center" style="background:#0f172a;">
+          <div class="text-xl font-bold text-amber-400" id="clobWinRate">—</div>
+          <div class="text-xs text-slate-500 mt-0.5">Win Rate</div>
+        </div>
+        <div class="card p-3 text-center" style="background:#0f172a;">
+          <div class="text-xl font-bold text-slate-400" id="clobSkipped">—</div>
+          <div class="text-xs text-slate-500 mt-0.5">Skipped</div>
+        </div>
+      </div>
+
       <!-- Log -->
       <div class="card p-3" style="background:#0f172a; max-height:200px; overflow-y:auto;" id="botLogContainer">
         <div class="text-xs text-slate-400 mb-1 font-semibold">Activity Log</div>
@@ -897,9 +925,22 @@ async function refreshBotStatus() {
   } catch(e) {}
 }
 
+// ── CLOB order stats ───────────────────────────────────────────────
+async function refreshBotStats() {
+  try {
+    const s = await fetchJson('/api/bot/stats');
+    document.getElementById('clobPlaced').textContent  = s.placed  ?? 0;
+    document.getElementById('clobFilled').textContent  = s.filled  ?? 0;
+    document.getElementById('clobWins').textContent    = s.wins    ?? 0;
+    document.getElementById('clobLosses').textContent  = s.losses  ?? 0;
+    document.getElementById('clobSkipped').textContent = s.skipped ?? 0;
+    document.getElementById('clobWinRate').textContent = s.win_rate != null ? s.win_rate + '%' : '—';
+  } catch(e) {}
+}
+
 // ── Polling loop ───────────────────────────────────────────────────
 async function poll() {
-  await Promise.all([refreshStats(), refreshLiveTicks(), refreshBotStatus()]);
+  await Promise.all([refreshStats(), refreshLiveTicks(), refreshBotStatus(), refreshBotStats()]);
 }
 
 // Initial load
@@ -907,6 +948,7 @@ async function poll() {
   await refreshStats();
   await refreshMarkets();
   await refreshBotStatus();
+  await refreshBotStats();
   // Poll stats + live ticks + bot status every 2s
   setInterval(poll, 2000);
   // Refresh market table every 10s

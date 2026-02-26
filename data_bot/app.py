@@ -49,7 +49,7 @@ PORT = int(os.environ.get("PORT", "8050"))
 # ── Collector instance (shared with web) ────────────────────────────
 
 collector = PriceCollector(db_path=DB_PATH)
-executor = OrderExecutor(collector)
+executor = OrderExecutor(collector, db_path=DB_PATH)
 # Wire WS trigger: collector fires this event when a 95c ask is seen
 collector._executor_ws_trigger = executor._ws_price_trigger
 
@@ -458,6 +458,14 @@ async def api_bot_stop():
 async def api_bot_status():
     try:
         return executor.get_status()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/bot/stats")
+async def api_bot_stats():
+    try:
+        return executor.get_order_stats()
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

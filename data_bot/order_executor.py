@@ -10,6 +10,7 @@ Uses py-clob-client for CLOB operations and py-builder-relayer-client for gasles
 import asyncio
 import logging
 import os
+import sqlite3
 import time
 from enum import Enum
 from dataclasses import dataclass, field
@@ -73,8 +74,9 @@ class OrderExecutor:
     Controlled by the frontend via start/stop.
     """
 
-    def __init__(self, collector):
+    def __init__(self, collector, db_path: str = "btc_5m_data.db"):
         self.collector = collector
+        self.db_path = db_path
         self.state = BotState.IDLE
         self.market_type = "5m"
         self.share_size = 5.0
@@ -95,6 +97,67 @@ class OrderExecutor:
 
         # Event set by the collector when a 95c ask is seen for monitored tokens
         self._ws_price_trigger: asyncio.Event = asyncio.Event()
+
+        self._init_orders_db()
+
+    # ── Orders DB ──────────────────────────────────────────────────
+
+    def _init_orders_db(self):
+        """Create bot_orders table if it doesn't exist."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_orders (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts          INTEGER NOT NULL,
+                event       TEXT NOT NULL,
+                market_slug TEXT,
+                side        TEXT,
+                order_id    TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+    def _record(self, event: str, slug: str = "", side: str = "", order_id: str = ""):
+        """Persist a bot event row (placed/filled/skipped/win/loss)."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute(
+                "INSERT INTO bot_orders (ts, event, market_slug, side, order_id) VALUES (?,?,?,?,?)",
+                (int(time.time()), event, slug or "", side or "", order_id or ""),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.debug(f"_record error: {e}")
+
+    def get_order_stats(self) -> dict:
+        """Return counts for the dashboard."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT event, COUNT(*) as cnt FROM bot_orders GROUP BY event"
+            ).fetchall()
+            conn.close()
+            counts = {r["event"]: r["cnt"] for r in rows}
+        except Exception:
+            counts = {}
+        placed   = counts.get("placed", 0)
+        filled   = counts.get("filled", 0)
+        skipped  = counts.get("skipped", 0)
+        wins     = counts.get("win", 0)
+        losses   = counts.get("loss", 0)
+        decided  = wins + losses
+        win_rate = round(wins / decided * 100, 1) if decided > 0 else None
+        return {
+            "placed": placed,
+            "filled": filled,
+            "skipped": skipped,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": win_rate,
+        }
 
     # ── Logging ────────────────────────────────────────────────────
 
@@ -324,7 +387,7 @@ class OrderExecutor:
     async def _redemption_sweep_loop(self):
         """Every 5 minutes, redeem any claimable positions.
         Backs off automatically if the relayer quota is exhausted."""
-        SWEEP_INTERVAL = 300  # seconds (5 minutes)
+        SWEEP_INTERVAL = 600  # seconds (10 minutes)
         MAX_RETRIES = 2
         RETRY_DELAY = 10  # seconds between retries on transient errors
 
@@ -428,6 +491,7 @@ class OrderExecutor:
             # If market has closed without a signal, abandon and wait for next
             if self.cycle and now >= self.cycle.close_ts:
                 self._log(f"Market {self.cycle.market_slug} closed with no signal -- moving on")
+                self._record("skipped", self.cycle.market_slug)
                 self.cycle = None
                 self.state = BotState.WAITING_FOR_MARKET
             return
@@ -484,6 +548,7 @@ class OrderExecutor:
                 self.cycle.order_id = oid
                 self.cycle.order_side = side
                 self._log(f"{side.upper()} order placed: {oid[:16]}... status={resp.get('status')}")
+                self._record("placed", self.cycle.market_slug, side, oid)
                 return True
             else:
                 self._log(f"{side.upper()} order FAILED: {resp}")
@@ -501,6 +566,7 @@ class OrderExecutor:
                 if self.cycle:
                     self.cycle.order_id = f"UNKNOWN_{side}_{int(time.time())}"
                     self.cycle.order_side = side
+                    self._record("placed", self.cycle.market_slug, side, self.cycle.order_id)
                 return True
             self._log(f"Error placing {side} order: {e}")
             logger.exception("place_single_order error")
@@ -521,6 +587,7 @@ class OrderExecutor:
                 f"no order ID available)"
             )
             self.cycle.filled_side = self.cycle.order_side
+            self._record("filled", self.cycle.market_slug, self.cycle.order_side, self.cycle.order_id)
             self.state = BotState.POSITION_HELD
             return
 
@@ -533,6 +600,7 @@ class OrderExecutor:
                     side = self.cycle.order_side.upper()
                     self._log(f"{side} order FILLED ({matched} shares @ {ORDER_PRICE})")
                     self.cycle.filled_side = self.cycle.order_side
+                    self._record("filled", self.cycle.market_slug, self.cycle.order_side, self.cycle.order_id)
                     self.state = BotState.POSITION_HELD
                     self._log(f"Holding {side} position until resolution")
                     return
@@ -599,13 +667,40 @@ class OrderExecutor:
     # ── State: RESOLVING — detect outcome ──────────────────────────
 
     async def _handle_resolution(self):
-        """Market resolved. Move to redemption."""
+        """Market resolved. Record win/loss, then move to redemption."""
         if not self.cycle:
             self.state = BotState.IDLE
             return
 
         self._log(f"Market {self.cycle.market_slug} resolved. Filled side: {self.cycle.filled_side}")
+
+        # Determine win/loss if we held a position
+        if self.cycle.filled_side:
+            winner = self._resolve_winner(self.cycle.market_slug)
+            if winner is not None:
+                outcome = "win" if winner == self.cycle.filled_side else "loss"
+                self._record(outcome, self.cycle.market_slug, self.cycle.filled_side)
+                self._log(f"Outcome: {outcome.upper()} (winner={winner}, held={self.cycle.filled_side})")
+
         self.state = BotState.REDEEMING
+
+    def _resolve_winner(self, slug: str) -> Optional[str]:
+        """Query DB for last yes/no mid prices to determine resolved winner."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT yes_mid, no_mid FROM price_ticks "
+                "WHERE market_slug=? AND yes_mid IS NOT NULL AND no_mid IS NOT NULL "
+                "ORDER BY epoch_ms DESC LIMIT 1",
+                (slug,),
+            ).fetchone()
+            conn.close()
+            if row:
+                return "yes" if row["yes_mid"] >= row["no_mid"] else "no"
+        except Exception as e:
+            logger.debug(f"_resolve_winner error: {e}")
+        return None
 
     # ── State: REDEEMING — reclaim tokens ──────────────────────────
 
