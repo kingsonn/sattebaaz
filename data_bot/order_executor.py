@@ -322,10 +322,11 @@ class OrderExecutor:
     # ── Periodic redemption sweep ──────────────────────────────────
 
     async def _redemption_sweep_loop(self):
-        """Every 20 seconds, redeem any claimable positions. Retries up to 3x on failure."""
-        SWEEP_INTERVAL = 20  # seconds
-        MAX_RETRIES = 3
-        RETRY_DELAY = 5  # seconds between retries
+        """Every 5 minutes, redeem any claimable positions.
+        Backs off automatically if the relayer quota is exhausted."""
+        SWEEP_INTERVAL = 300  # seconds (5 minutes)
+        MAX_RETRIES = 2
+        RETRY_DELAY = 10  # seconds between retries on transient errors
 
         # No initial delay — sweep immediately on start to clear any leftover tokens
         while True:
@@ -336,6 +337,14 @@ class OrderExecutor:
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
+                    wait_secs = self._parse_quota_reset_secs(e)
+                    if wait_secs is not None:
+                        self._log(
+                            f"Relayer quota exhausted — pausing sweep for {wait_secs}s "
+                            f"(~{wait_secs // 60}m) until reset"
+                        )
+                        await asyncio.sleep(wait_secs + 5)  # +5s buffer
+                        break  # skip remaining retries, resume normal schedule
                     logger.debug(f"Redemption sweep attempt {attempt}/{MAX_RETRIES} failed: {e}")
                     if attempt < MAX_RETRIES:
                         await asyncio.sleep(RETRY_DELAY)
@@ -349,6 +358,19 @@ class OrderExecutor:
         if results:
             self._log(f"Sweep: redeemed {len(results)} position(s)")
 
+    @staticmethod
+    def _parse_quota_reset_secs(exc: Exception) -> int | None:
+        """If exc is a relayer quota error, return seconds until reset. Else None."""
+        import re
+        msg = str(exc)
+        if "quota exceeded" not in msg.lower():
+            return None
+        m = re.search(r"resets in (\d+) seconds", msg, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        # Fallback: couldn't parse exact time, wait 1 hour
+        return 3600
+
     async def _redeem_condition(self, condition_id: str, neg_risk: bool, label: str = ""):
         """Redeem a single condition via poly-web3."""
         try:
@@ -356,9 +378,16 @@ class OrderExecutor:
             if results:
                 self._log(f"Redeem confirmed: {label or condition_id[:16]}")
             else:
-                self._log(f"Redeem returned empty result for {label or condition_id[:16]} -- may need retry")
+                self._log(f"Redeem returned empty result for {label or condition_id[:16]} -- will be picked up by next sweep")
         except Exception as e:
-            self._log(f"Redeem error ({label}): {e}")
+            wait_secs = self._parse_quota_reset_secs(e)
+            if wait_secs is not None:
+                self._log(
+                    f"Redeem skipped ({label or condition_id[:16]}): relayer quota exhausted — "
+                    f"sweep will retry in ~{wait_secs // 60}m after reset"
+                )
+            else:
+                self._log(f"Redeem error ({label}): {e}")
 
     # ── State: MONITORING_PRICES — watch asks, place when >= target ─
 
