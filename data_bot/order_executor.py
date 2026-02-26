@@ -447,6 +447,18 @@ class OrderExecutor:
                 return False
 
         except Exception as e:
+            err_str = str(e)
+            # PolyApiException "Request exception!" means a network-level failure —
+            # the order may have already been submitted on the server side.
+            # Treat as submitted to avoid placing duplicate orders on retry.
+            if "Request exception" in err_str:
+                self._log(
+                    f"Error placing {side} order: {e} — treating as submitted to avoid duplicates"
+                )
+                if self.cycle:
+                    self.cycle.order_id = f"UNKNOWN_{side}_{int(time.time())}"
+                    self.cycle.order_side = side
+                return True
             self._log(f"Error placing {side} order: {e}")
             logger.exception("place_single_order error")
             return False
@@ -456,6 +468,17 @@ class OrderExecutor:
     async def _monitor_order(self):
         """Check if the single order got filled."""
         if not self.cycle or not self._clob or not self.cycle.order_id:
+            return
+
+        # Sentinel order ID from a Request exception — assume filled
+        if self.cycle.order_id.startswith("UNKNOWN_"):
+            side = (self.cycle.order_side or "").upper()
+            self._log(
+                f"{side} order assumed filled (placed during network error, "
+                f"no order ID available)"
+            )
+            self.cycle.filled_side = self.cycle.order_side
+            self.state = BotState.POSITION_HELD
             return
 
         try:
