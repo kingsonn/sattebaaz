@@ -199,9 +199,33 @@ class OrderExecutor:
     def stop(self):
         if not self._running:
             return {"error": "Bot is not running"}
-        self._stop_requested = True
-        self._log("Stop requested -- will finish current cycle then stop")
-        return {"status": "stopping"}
+        self._log("Stop requested -- cancelling immediately")
+        # Cancel the background task immediately
+        if self._task and not self._task.done():
+            self._task.cancel()
+        # Schedule async cleanup (cancel open order, reset state)
+        asyncio.create_task(self._force_stop())
+        return {"status": "stopped"}
+
+    async def _force_stop(self):
+        """Cancel any open CLOB order and fully reset to pre-start state."""
+        try:
+            if self._clob and self.cycle and self.cycle.order_id:
+                if not self.cycle.order_id.startswith("UNKNOWN_"):
+                    try:
+                        await self._clob_cancel(self.cycle.order_id)
+                        self._log(f"Cancelled open order on stop: {self.cycle.order_id[:16]}...")
+                    except Exception as e:
+                        self._log(f"Could not cancel order on stop: {e}")
+        finally:
+            self.cycle = None
+            self.state = BotState.IDLE
+            self._running = False
+            self._stop_requested = False
+            self._skip_slug = None
+            self._ws_price_trigger.clear()
+            self.logs = []
+            self._log("Bot stopped and reset")
 
     def get_status(self) -> dict:
         return {
@@ -387,7 +411,7 @@ class OrderExecutor:
     async def _redemption_sweep_loop(self):
         """Every 5 minutes, redeem any claimable positions.
         Backs off automatically if the relayer quota is exhausted."""
-        SWEEP_INTERVAL = 600  # seconds (10 minutes)
+        SWEEP_INTERVAL = 900  # seconds (15 minutes)
         MAX_RETRIES = 2
         RETRY_DELAY = 10  # seconds between retries on transient errors
 
@@ -667,7 +691,7 @@ class OrderExecutor:
     # ── State: RESOLVING — detect outcome ──────────────────────────
 
     async def _handle_resolution(self):
-        """Market resolved. Record win/loss, then move to redemption."""
+        """Market resolved. Record win/loss, then finish cycle (no auto-redeem)."""
         if not self.cycle:
             self.state = BotState.IDLE
             return
@@ -682,7 +706,8 @@ class OrderExecutor:
                 self._record(outcome, self.cycle.market_slug, self.cycle.filled_side)
                 self._log(f"Outcome: {outcome.upper()} (winner={winner}, held={self.cycle.filled_side})")
 
-        self.state = BotState.REDEEMING
+        # Skip auto-redeem -- tokens may not be ready; sweep loop handles it later
+        await self._finish_cycle()
 
     def _resolve_winner(self, slug: str) -> Optional[str]:
         """Query DB for last yes/no mid prices to determine resolved winner."""

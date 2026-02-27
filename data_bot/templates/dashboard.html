@@ -828,6 +828,16 @@ async function stopBot() {
     const resp = await fetch('/api/bot/stop', { method: 'POST' });
     const data = await resp.json();
     if (data.error) { alert(data.error); return; }
+    // Stop is immediate — reset UI right away
+    botActive = false;
+    updateBotUI(false);
+    document.getElementById('botStateBadge').className = 'text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400';
+    document.getElementById('botStateBadge').textContent = 'idle';
+    document.getElementById('botStateText').textContent = 'idle';
+    document.getElementById('botMarketText').textContent = '—';
+    document.getElementById('botFilledText').textContent = '—';
+    document.getElementById('botOrdersText').textContent = '—';
+    document.getElementById('botLog').innerHTML = '';
   } catch(e) { alert('Error stopping bot: ' + e); }
 }
 
