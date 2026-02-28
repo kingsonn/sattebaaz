@@ -209,8 +209,9 @@ async def api_markets(market_type: str = Query("5m", pattern="^(5m|15m)$")):
                             elif t["no_mid"] is not None and t["no_mid"] <= 0.05:
                                 first_touch_side = "no"
                                 first_touch_elapsed = t["seconds_elapsed"]
-                    # Exclude if first touch is in last 60 seconds
-                    if first_touch_elapsed is not None and first_touch_elapsed <= 240:  # 300s total - 60s = 240s
+                    # Only count if first touch happens BEFORE the last 60 seconds (exclude last-minute decisions)
+                    # 5-minute market = 300s total. Last 60s = 240-300s. So we include only if first_touch_elapsed <= 240
+                    if first_touch_elapsed is not None and first_touch_elapsed <= 240:
                         winner_touched = (winner == "yes" and first_touch_side == "yes") or (winner == "no" and first_touch_side == "no")
                         m["strategy2dash"] = "won" if winner_touched else "lost"
 
