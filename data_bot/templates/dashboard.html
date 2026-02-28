@@ -529,6 +529,7 @@ function updateStrategyCounters(resolved) {
   };
   const counters1dash = { won: 0, lost: 0 };
   const counters2dash = { won: 0, lost: 0 }; // Strategy 2-1 (excluding NY session)
+  const counters2dash2 = { won: 0, lost: 0 }; // Strategy 2-2 (exclude last 60s)
   const counters5dash = { won: 0, lost: 0 }; // Strategy 5-1 (excluding NY session)
   let strategy5SignalValues = [];
   let strategy5dashSignalValues = []; // For Strategy 5-1 average
@@ -569,6 +570,13 @@ function updateStrategyCounters(resolved) {
       else if (s2.startsWith('lost')) counters2dash.lost++;
     }
     
+    // Strategy 2-2: exclude markets where first <=0.05 touch is in last 60s
+    const s2dash2 = m.strategy2dash;
+    if (s2dash2) {
+      if (s2dash2.startsWith('won')) counters2dash2.won++;
+      else if (s2dash2.startsWith('lost')) counters2dash2.lost++;
+    }
+    
     // Strategy 5-1: count only non-NY session markets
     const s5 = m.strategy5;
     if (s5 && !isNYSession) {
@@ -605,6 +613,7 @@ function updateStrategyCounters(resolved) {
     { key: 'strategy4', label: 'Strategy 4' },
     { key: 'strategy1dash', label: 'Strategy 1-1' },
     { key: 'strategy2dash', label: 'Strategy 2-1' },
+    { key: 'strategy2dash2', label: 'Strategy 2-2' },
   ];
   if (is15m) items.push({ key: 'strategy5', label: 'Strategy 5 (15m)' });
   if (is15m) items.push({ key: 'strategy5dash', label: 'Strategy 5-1' });
@@ -616,6 +625,8 @@ function updateStrategyCounters(resolved) {
       ({ won, lost } = counters1dash);
     } else if (key === 'strategy2dash') {
       ({ won, lost } = counters2dash);
+    } else if (key === 'strategy2dash2') {
+      ({ won, lost } = counters2dash2);
     } else if (key === 'strategy5dash') {
       ({ won, lost } = counters5dash);
     } else {
@@ -638,6 +649,11 @@ function updateStrategyCounters(resolved) {
     // Add note for Strategy 2-1 (excludes NY session)
     if (key === 'strategy2dash') {
       extraInfo = `<div class="text-xs text-slate-500 mt-1">(excl. NY)</div>`;
+    }
+    
+    // Add note for Strategy 2-2 (excludes last 60s)
+    if (key === 'strategy2dash2') {
+      extraInfo = `<div class="text-xs text-slate-500 mt-1">(excl. last 60s)</div>`;
     }
     
     // Add note for Strategy 5-1 (excludes NY session)

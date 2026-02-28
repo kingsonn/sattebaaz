@@ -127,6 +127,7 @@ async def api_markets(market_type: str = Query("5m", pattern="^(5m|15m)$")):
         m["no_min"] = None
         m["strategy1"] = None
         m["strategy2"] = None
+        m["strategy2dash"] = None
         m["strategy3"] = None
         m["strategy4"] = None
         m["strategy5"] = None
@@ -186,6 +187,32 @@ async def api_markets(market_type: str = Query("5m", pattern="^(5m|15m)$")):
                 if yes_touched or no_touched:
                     winner_touched = (winner == "yes" and yes_touched) or (winner == "no" and no_touched)
                     m["strategy2"] = "won" if winner_touched else "lost"
+
+                # Strategy 2-2:
+                # Same as Strategy 2, but exclude markets where the side that first touches <=0.05
+                # does so in the last 60 seconds.
+                if yes_touched or no_touched:
+                    # Find which side first touches <=0.05 and when
+                    ticks = conn.execute(
+                        "SELECT yes_mid, no_mid, seconds_elapsed FROM price_ticks "
+                        "WHERE market_slug=? AND (yes_mid <= 0.05 OR no_mid <= 0.05) "
+                        "ORDER BY epoch_ms",
+                        (slug,),
+                    ).fetchall()
+                    first_touch_side = None
+                    first_touch_elapsed = None
+                    for t in ticks:
+                        if first_touch_side is None:
+                            if t["yes_mid"] is not None and t["yes_mid"] <= 0.05:
+                                first_touch_side = "yes"
+                                first_touch_elapsed = t["seconds_elapsed"]
+                            elif t["no_mid"] is not None and t["no_mid"] <= 0.05:
+                                first_touch_side = "no"
+                                first_touch_elapsed = t["seconds_elapsed"]
+                    # Exclude if first touch is in last 60 seconds
+                    if first_touch_elapsed is not None and first_touch_elapsed <= 240:  # 300s total - 60s = 240s
+                        winner_touched = (winner == "yes" and first_touch_side == "yes") or (winner == "no" and first_touch_side == "no")
+                        m["strategy2dash"] = "won" if winner_touched else "lost"
 
                 # Strategy 3:
                 # If no open side is >= 0.53, both YES and NO must touch <= 0.48 at least once.
